@@ -1,0 +1,47 @@
+# Data
+data/raw/
+data/processed/
+*.csv
+*.jpg
+*.png
+*.jpeg
+
+# Model weights
+weights/
+*.pth
+*.pt
+*.h5
+*.onnx
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+results/logs/
+
+# Temporary
+tmp/
+temp/
