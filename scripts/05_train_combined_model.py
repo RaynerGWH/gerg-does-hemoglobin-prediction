@@ -133,18 +133,16 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, feature_names, model_type
     # Select model
     if model_type == 'rf':
         model = RandomForestRegressor(
-            n_estimators=100,
-            max_depth=10,
-            min_samples_split=10,
-            min_samples_leaf=5,
+            n_estimators=300,
+            max_depth=20,
+            min_samples_split=5,
+            min_samples_leaf=2,
             max_features='sqrt',
-            bootstrap=True,
-            oob_score=True,
             random_state=42,
             n_jobs=-1
         )
         print(f"   📋 Using Random Forest")
-        print(f"      n_estimators=100, max_depth=10, max_features='sqrt'")
+        print(f"      n_estimators=300, max_depth=20, max_features='sqrt'")
     elif model_type == 'gb':
         # More conservative GB settings to prevent overfitting
         model = GradientBoostingRegressor(
