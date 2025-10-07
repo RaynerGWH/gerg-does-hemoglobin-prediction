@@ -6,12 +6,7 @@ data/processed/
 *.png
 *.jpeg
 
-# Model weights
-weights/
-*.pth
-*.pt
-*.h5
-*.onnx
+
 
 # Python
 __pycache__/

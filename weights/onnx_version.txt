@@ -1,0 +1,5 @@
+ONNX Runtime Version: See requirements.txt
+Opset Version: 12
+Model Type: RandomForestRegressor
+Input Shape: (batch_size, 28)
+Output Shape: (batch_size, 1)
