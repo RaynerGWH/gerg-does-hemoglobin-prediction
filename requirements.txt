@@ -17,6 +17,7 @@ scikit-learn>=1.0.0
 # Utilities
 tqdm>=4.62.0
 pyyaml>=6.0
+onnxruntime>=1.15.0
 
 # Jupyter (for notebooks)
 jupyter>=1.0.0

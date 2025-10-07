@@ -1,0 +1,314 @@
+"""
+Evaluate Model on Test Set (30 Images)
+Run from project root: python scripts/06_evaluate_on_test.py
+"""
+
+import numpy as np
+import pandas as pd
+from pathlib import Path
+import pickle
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+import sys
+import os
+import importlib.util
+
+# Load the enhanced feature extraction module
+script_dir = os.path.dirname(os.path.abspath(__file__))
+spec = importlib.util.spec_from_file_location("extract_enhanced_features", 
+                                                os.path.join(script_dir, "01_extract_enhanced_features.py"))
+efe_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(efe_module)
+extract_enhanced_features = efe_module.extract_enhanced_features
+
+
+def load_model_and_scaler():
+    """Load trained model and feature scaler"""
+    weights_dir = Path('../weights')
+    
+    model_path = weights_dir / 'final_model.pkl'
+    scaler_path = weights_dir / 'feature_scaler.pkl'
+    
+    if not model_path.exists():
+        raise FileNotFoundError(f"Model not found: {model_path}")
+    
+    with open(model_path, 'rb') as f:
+        model = pickle.load(f)
+    
+    # Scaler is optional (older models might not have it)
+    scaler = None
+    if scaler_path.exists():
+        with open(scaler_path, 'rb') as f:
+            scaler = pickle.load(f)
+    
+    return model, scaler
+
+
+def evaluate_on_test_set():
+    """Evaluate model on 30 test images, showing validation and full results"""
+    
+    print("=" * 70)
+    print("EVALUATING ON TEST SET (30 IMAGES)")
+    print("=" * 70)
+    
+    # Load model
+    print("\n📦 Loading trained model...")
+    model, scaler = load_model_and_scaler()
+    print("   ✓ Model loaded")
+    if scaler:
+        print("   ✓ Feature scaler loaded")
+    
+    # Load test labels
+    labels_path = Path('../data/starter/labels.csv')
+    if not labels_path.exists():
+        print(f"\n❌ Labels file not found: {labels_path}")
+        return
+    
+    df = pd.read_csv(labels_path)
+    print(f"\n📊 Found {len(df)} test images")
+    
+    # Try to load validation metadata to identify which images are in validation set
+    processed_dir = Path('../data/processed')
+    val_metadata_path = processed_dir / 'val_metadata.csv'
+    val_images = set()
+    
+    if val_metadata_path.exists():
+        try:
+            meta_df = pd.read_csv(val_metadata_path)
+            # Get validation image filenames (filename column has the image names)
+            if 'filename' in meta_df.columns:
+                val_images = set(meta_df['filename'].unique())
+                print(f"   📋 Identified {len(val_images)} validation images:")
+                for img in sorted(val_images):
+                    print(f"      - {img}")
+            elif 'original_filename' in meta_df.columns:
+                val_images = set(meta_df['original_filename'].unique())
+                print(f"   📋 Identified {len(val_images)} validation images: {sorted(val_images)}")
+            else:
+                print(f"   ⚠️  'filename' or 'original_filename' column not found in metadata")
+                print(f"   Columns found: {list(meta_df.columns)}")
+        except Exception as e:
+            print(f"   ⚠️  Could not load validation metadata: {e}")
+    else:
+        print(f"   ℹ️  No validation metadata found at {val_metadata_path}")
+        print(f"   All images will be treated as test set")
+    
+    # Extract features from test images
+    print("\n🔍 Extracting features from test images...")
+    features_list = []
+    predictions = []
+    actual_values = []
+    filenames = []
+    is_validation = []  # Track which are validation images
+    failed_images = []
+    
+    for idx, row in df.iterrows():
+        img_path = Path(row['filepath'])
+        if not img_path.exists():
+            img_path = Path('..') / img_path
+        
+        # Extract features
+        features = extract_enhanced_features(img_path)
+        
+        if features is not None:
+            # Convert dict to array (ensure same order as training)
+            feature_array = np.array(list(features.values())).reshape(1, -1)
+            
+            # Scale features if scaler is available
+            if scaler:
+                feature_array = scaler.transform(feature_array)
+            
+            # Predict
+            prediction = model.predict(feature_array)[0]
+            
+            predictions.append(prediction)
+            actual_values.append(row['hgb'])
+            filenames.append(row['filename'])
+            is_validation.append(row['filename'] in val_images)
+            
+            
+            val_status = " [VAL]" if row['filename'] in val_images else ""
+            print(f"  ✓ [{idx+1}/{len(df)}] {row['filename']}{val_status}: "
+                  f"Actual={row['hgb']:.1f}, Predicted={prediction:.1f} g/dL")
+        else:
+            failed_images.append(row['filename'])
+            print(f"  ✗ [{idx+1}/{len(df)}] {row['filename']} - FAILED")
+    
+    # Convert to arrays
+    predictions = np.array(predictions)
+    actual_values = np.array(actual_values)
+    is_validation = np.array(is_validation)
+    
+    # Calculate metrics for validation set (if we have validation images)
+    if len(val_images) > 0 and any(is_validation):
+        val_mask = is_validation
+        val_predictions = predictions[val_mask]
+        val_actuals = actual_values[val_mask]
+        
+        val_mae = mean_absolute_error(val_actuals, val_predictions)
+        val_rmse = np.sqrt(mean_squared_error(val_actuals, val_predictions))
+        val_r2 = r2_score(val_actuals, val_predictions)
+        
+        print("\n" + "=" * 70)
+        print("VALIDATION SET RESULTS (Independent Images)")
+        print("=" * 70)
+        print(f"\n📊 Validation Set Performance ({len(val_predictions)} images):")
+        print(f"   MAE:  {val_mae:.3f} g/dL")
+        print(f"   RMSE: {val_rmse:.3f} g/dL")
+        print(f"   R²:   {val_r2:.3f}")
+        
+        if val_mae <= 0.8:
+            print(f"\n🎉 VALIDATION SUCCESS! Target achieved (MAE ≤ 0.8 g/dL)")
+        else:
+            print(f"\n⚠️  Validation MAE > 0.8 g/dL (target not met)")
+    
+    # Calculate metrics for ALL images
+    print("\n" + "=" * 70)
+    print("FULL TEST SET RESULTS (All 30 Images)")
+    print("=" * 70)
+    
+    mae = mean_absolute_error(actual_values, predictions)
+    rmse = np.sqrt(mean_squared_error(actual_values, predictions))
+    r2 = r2_score(actual_values, predictions)
+    
+    print(f"\n📊 Full Dataset Performance ({len(predictions)} images):")
+    print(f"   MAE:  {mae:.3f} g/dL")
+    print(f"   RMSE: {rmse:.3f} g/dL")
+    print(f"   R²:   {r2:.3f}")
+    
+    if mae <= 0.8:
+        print(f"\n🎉 SUCCESS! Target achieved (MAE ≤ 0.8 g/dL)")
+    else:
+        print(f"\n⚠️  Target not reached. Need MAE ≤ 0.8 g/dL")
+    
+    print(f"\n✅ Successfully evaluated: {len(predictions)}/{len(df)} images")
+    if failed_images:
+        print(f"❌ Failed images: {len(failed_images)}")
+        for fname in failed_images:
+            print(f"   - {fname}")
+    
+    # Create results DataFrame
+    results_df = pd.DataFrame({
+        'filename': filenames,
+        'actual_hgb': actual_values,
+        'predicted_hgb': predictions,
+        'error': np.abs(actual_values - predictions),
+        'is_validation': is_validation
+    })
+    
+    # Sort by error
+    results_df = results_df.sort_values('error', ascending=False)
+    
+    print(f"\n📋 Worst predictions (largest errors):")
+    print(results_df.head(5)[['filename', 'actual_hgb', 'predicted_hgb', 'error', 'is_validation']].to_string(index=False))
+    
+    # Save results
+    results_dir = Path('../results')
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    results_path = results_dir / 'test_evaluation.csv'
+    
+    # Try to save CSV with fallback filename if file is locked
+    try:
+        results_df.to_csv(results_path, index=False)
+        print(f"\n💾 Saved results to: {results_path}")
+    except PermissionError:
+        # File might be open in Excel - try alternative name
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        alt_path = results_dir / f'test_evaluation_{timestamp}.csv'
+        results_df.to_csv(alt_path, index=False)
+        print(f"\n⚠️  Original file was locked (close Excel if open)")
+        print(f"💾 Saved results to: {alt_path}")
+    
+    # Create visualization
+    print("\n📈 Creating visualization...")
+    if len(val_images) > 0 and any(is_validation):
+        create_evaluation_plot(actual_values, predictions, is_validation, mae, val_mae, r2, results_dir)
+    else:
+        create_evaluation_plot(actual_values, predictions, None, mae, None, r2, results_dir)
+    
+    return results_df, mae, rmse, r2
+
+
+def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, output_dir):
+    """Create scatter plot of predictions vs actual values, highlighting validation set"""
+    
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Separate training and validation points
+    if is_validation is not None and any(is_validation):
+        train_mask = ~is_validation
+        val_mask = is_validation
+        
+        # Training points
+        ax.scatter(actual[train_mask], predicted[train_mask], 
+                  alpha=0.6, s=100, edgecolors='black', linewidths=1, 
+                  color='blue', label='Training images')
+        
+        # Validation points (highlighted)
+        ax.scatter(actual[val_mask], predicted[val_mask], 
+                  alpha=0.8, s=150, edgecolors='red', linewidths=2, 
+                  color='orange', marker='D', label='Validation images')
+    else:
+        # All points (no validation split)
+        ax.scatter(actual, predicted, alpha=0.6, s=100, edgecolors='black', linewidths=1)
+    
+    # Perfect prediction line
+    min_val = min(actual.min(), predicted.min())
+    max_val = max(actual.max(), predicted.max())
+    ax.plot([min_val, max_val], [min_val, max_val], 'r--', linewidth=2, alpha=0.7, label='Perfect Prediction')
+    
+    # Labels and title
+    ax.set_xlabel('Actual Hemoglobin (g/dL)', fontsize=12, fontweight='bold')
+    ax.set_ylabel('Predicted Hemoglobin (g/dL)', fontsize=12, fontweight='bold')
+    
+    if val_mae is not None:
+        title = f'Model Performance on Test Set (30 Images)\nFull MAE: {mae:.3f} | Val MAE: {val_mae:.3f} | R²: {r2:.3f}'
+    else:
+        title = f'Model Performance on Test Set (30 Images)\nMAE: {mae:.3f} g/dL | R²: {r2:.3f}'
+    
+    ax.set_title(title, fontsize=14, fontweight='bold')
+    
+    # Grid
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=10, loc='upper left')
+    
+    # Equal aspect ratio
+    ax.set_aspect('equal', adjustable='box')
+    
+    # Save plot with error handling
+    plot_path = output_dir / 'test_evaluation_plot.png'
+    try:
+        plt.tight_layout()
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        print(f"   ✓ Saved plot to: {plot_path}")
+    except PermissionError:
+        # File might be open - try alternative name
+        import datetime
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        alt_plot_path = output_dir / f'test_evaluation_plot_{timestamp}.png'
+        plt.savefig(alt_plot_path, dpi=300, bbox_inches='tight')
+        print(f"   ⚠️  Original plot file was locked")
+        print(f"   ✓ Saved plot to: {alt_plot_path}")
+    finally:
+        plt.close()
+
+
+def main():
+    """Main evaluation function"""
+    try:
+        results_df, mae, rmse, r2 = evaluate_on_test_set()
+        
+        print("\n" + "=" * 70)
+        print("✅ EVALUATION COMPLETE")
+        print("=" * 70)
+        
+    except Exception as e:
+        print(f"\n❌ Error during evaluation: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+if __name__ == '__main__':
+    main()

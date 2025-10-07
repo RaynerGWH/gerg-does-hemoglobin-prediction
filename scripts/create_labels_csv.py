@@ -11,7 +11,7 @@ def extract_hgb_from_filename(filename):
     return None
 
 # Get all images
-images_dir = Path('data/starter/images')
+images_dir = Path('../data/starter/images')
 image_files = sorted([f for f in images_dir.iterdir() 
                       if f.suffix.lower() in ['.jpg', '.jpeg', '.png', '.heic']])
 
@@ -39,7 +39,7 @@ for img_path in image_files:
 df = pd.DataFrame(data)
 
 # Save to CSV
-output_path = Path('data/starter/labels.csv')
+output_path = Path('../data/starter/labels.csv')
 df.to_csv(output_path, index=False)
 
 print(f"\n" + "=" * 60)
@@ -62,10 +62,26 @@ print(f"\nUnique HgB values: {sorted(unique_hgb)}")
 print(f"Number of unique values: {len(unique_hgb)}")
 
 print(f"\n" + "=" * 60)
-print("⚠️  IMPORTANT NOTE:")
+print("NEXT STEPS:")
 print("=" * 60)
-print(f"You have {len(df)} images but lip_rgb_features.npy has 28 samples!")
-print("This mismatch suggests:")
-print("1. Some images failed during feature extraction")
-print("2. Or features were extracted from different images")
-print("\nRecommendation: Re-extract features to match these {len(df)} images")
+print(f"✅ Labels created for {len(df)} images")
+print("➡️  Run: python 01_extract_enhanced_features.py")
+print("➡️  This will extract features for all images")
+
+# Check if old features exist and warn about mismatch
+features_path = Path('../data/processed/enhanced_features.npy')
+if features_path.exists():
+    import numpy as np
+    old_features = np.load(features_path)
+    if len(old_features) != len(df):
+        print(f"\n" + "⚠️  " * 20)
+        print("⚠️  MISMATCH DETECTED:")
+        print("=" * 60)
+        print(f"Current images in labels.csv: {len(df)}")
+        print(f"Old features in enhanced_features.npy: {len(old_features)}")
+        print("\nThis mismatch suggests:")
+        print("1. You added/removed images since last feature extraction")
+        print("2. Or some images previously failed during extraction")
+        print("\n✅ SOLUTION: Re-run feature extraction to sync:")
+        print("   python 01_extract_enhanced_features.py")
+        print("=" * 60)

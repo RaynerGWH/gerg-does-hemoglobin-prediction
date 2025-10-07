@@ -62,7 +62,7 @@ def extract_relative_color_features(img_path):
         return None
 
 # Load Genesis labels
-df = pd.read_csv('data/starter/labels.csv')
+df = pd.read_csv('../data/starter/labels.csv')
 
 features = []
 valid_indices = []
@@ -78,8 +78,8 @@ for idx, filepath in enumerate(df['filepath']):
 X = np.array(features)
 df_valid = df.iloc[valid_indices].reset_index(drop=True)
 
-np.save('data/starter/relative_features.npy', X)
-df_valid.to_csv('data/starter/labels_valid.csv', index=False)
+np.save('../data/starter/relative_features.npy', X)
+df_valid.to_csv('../data/starter/labels_valid.csv', index=False)
 
 print(f"\nExtracted {X.shape[1]} features for {len(X)}/{len(df)} lip images")
 print(f"Feature breakdown:")
@@ -88,4 +88,4 @@ print(f"  - Relative ratios: 3 features")
 print(f"  - Color ratios: 3 features")
 print(f"  - Dominance: 1 feature")
 print(f"  - Normalized RGB: 3 features")
-print(f"\nSaved to data/starter/relative_features.npy")
+print(f"\nSaved to ../data/starter/relative_features.npy")
