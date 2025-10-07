@@ -133,14 +133,18 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, feature_names, model_type
     # Select model
     if model_type == 'rf':
         model = RandomForestRegressor(
-            n_estimators=300,
-            max_depth=20,
-            min_samples_split=5,
-            min_samples_leaf=2,
+            n_estimators=100,
+            max_depth=10,
+            min_samples_split=10,
+            min_samples_leaf=5,
             max_features='sqrt',
+            bootstrap=True,
+            oob_score=True,
             random_state=42,
             n_jobs=-1
         )
+        print(f"   📋 Using Random Forest")
+        print(f"      n_estimators=100, max_depth=10, max_features='sqrt'")
     elif model_type == 'gb':
         # More conservative GB settings to prevent overfitting
         model = GradientBoostingRegressor(
@@ -184,15 +188,21 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, feature_names, model_type
     print(f"   MAE: {val_mae:.3f} g/dL")
     print(f"   R²: {val_r2:.3f}")
     
+    # OOB score for Random Forest
+    if model_type == 'rf' and hasattr(model, 'oob_score_'):
+        print(f"   OOB Score: {model.oob_score_:.3f}")
+    
     if val_mae <= 0.8:
         print(f"\n🎉 TARGET ACHIEVED on validation set! (MAE ≤ 0.8 g/dL)")
     else:
         print(f"\n⚠️  Validation MAE > 0.8 g/dL (target not met yet)")
     
     # Check for overfitting
+    overfitting_ratio = val_mae / train_mae
     if train_mae < val_mae * 0.7:
         print(f"\n⚠️  WARNING: Possible overfitting detected")
         print(f"   Training MAE ({train_mae:.3f}) is much lower than validation MAE ({val_mae:.3f})")
+        print(f"   Overfitting ratio: {overfitting_ratio:.1f}x")
     
     # Feature importance (for tree-based models)
     if hasattr(model, 'feature_importances_'):
@@ -211,6 +221,27 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, feature_names, model_type
     return model, scaler, train_metrics, val_metrics
 
 
+def compare_models(results):
+    """Compare multiple trained models"""
+    print("\n" + "=" * 70)
+    print("📊 MODEL COMPARISON")
+    print("=" * 70)
+    
+    df = pd.DataFrame(results)
+    print("\n" + df.to_string(index=False))
+    
+    # Find best model by validation MAE
+    best_idx = df['val_mae'].idxmin()
+    best_model = df.iloc[best_idx]
+    
+    print("\n" + "=" * 70)
+    print(f"🏆 BEST MODEL: {best_model['model_type'].upper()}")
+    print("=" * 70)
+    print(f"   Validation MAE: {best_model['val_mae']:.3f} g/dL")
+    print(f"   Validation R²:  {best_model['val_r2']:.3f}")
+    print(f"   Overfitting ratio: {best_model['val_mae'] / best_model['train_mae']:.1f}x")
+
+
 def main():
     """Main training pipeline"""
     
@@ -221,9 +252,9 @@ def main():
     parser.add_argument('--cnn-model', type=str, default='resnet18',
                        choices=['resnet18', 'resnet50', 'mobilenet_v2'],
                        help='CNN model to use')
-    parser.add_argument('--model', type=str, default='rf',
-                       choices=['rf', 'gb', 'ridge'],
-                       help='Model type: rf (Random Forest), gb (Gradient Boosting), ridge')
+    parser.add_argument('--model', type=str, default='gb',
+                       choices=['rf', 'gb', 'ridge', 'both'],
+                       help='Model type: rf (Random Forest), gb (Gradient Boosting), ridge, both (train and compare)')
     parser.add_argument('--no-augmentation', action='store_true',
                        help='Do not use augmented data')
     args = parser.parse_args()
@@ -268,14 +299,93 @@ def main():
     print(f"   Training HgB range: {y_train.min():.1f} - {y_train.max():.1f} g/dL")
     print(f"   Validation HgB range: {y_val.min():.1f} - {y_val.max():.1f} g/dL")
     
-    # Train model
+    # Train model(s)
     print("\n" + "=" * 70)
     print("MODEL TRAINING")
     print("=" * 70)
     
-    model, scaler, train_metrics, val_metrics = train_and_evaluate(
-        X_train, y_train, X_val, y_val, feature_names, args.model
-    )
+    if args.model == 'both':
+        print("\n🔄 Training both Random Forest and Gradient Boosting for comparison...\n")
+        results = []
+        models_data = {}
+        
+        for model_type in ['rf', 'gb']:
+            print(f"\n{'='*70}")
+            print(f"Training {model_type.upper()}")
+            print(f"{'='*70}")
+            
+            model, scaler, train_metrics, val_metrics = train_and_evaluate(
+                X_train, y_train, X_val, y_val, feature_names, model_type
+            )
+            
+            models_data[model_type] = {
+                'model': model,
+                'scaler': scaler,
+                'train_metrics': train_metrics,
+                'val_metrics': val_metrics
+            }
+            
+            results.append({
+                'model_type': model_type.upper(),
+                'train_mae': train_metrics['mae'],
+                'val_mae': val_metrics['mae'],
+                'train_r2': train_metrics['r2'],
+                'val_r2': val_metrics['r2']
+            })
+        
+        # Compare models
+        compare_models(results)
+        
+        # Save BOTH models with different names
+        print(f"\n💾 Saving both models for comparison...")
+        weights_dir = Path('../weights')
+        weights_dir.mkdir(parents=True, exist_ok=True)
+        
+        for model_type in ['rf', 'gb']:
+            model_subdir = weights_dir / model_type
+            model_subdir.mkdir(parents=True, exist_ok=True)
+            
+            model_path_type = model_subdir / 'final_model.pkl'
+            scaler_path_type = model_subdir / 'feature_scaler.pkl'
+            config_path_type = model_subdir / 'model_config.txt'
+            
+            with open(model_path_type, 'wb') as f:
+                pickle.dump(models_data[model_type]['model'], f)
+            
+            with open(scaler_path_type, 'wb') as f:
+                pickle.dump(models_data[model_type]['scaler'], f)
+            
+            # Save configuration
+            with open(config_path_type, 'w') as f:
+                f.write(f"Model type: {model_type}\n")
+                f.write(f"Use augmentation: {not args.no_augmentation}\n")
+                f.write(f"Use CNN: {args.use_cnn}\n")
+                if args.use_cnn:
+                    f.write(f"CNN model: {args.cnn_model}\n")
+                f.write(f"Features: {len(feature_names)}\n")
+                f.write(f"Training samples: {len(X_train)}\n")
+                f.write(f"Validation samples: {len(X_val)}\n")
+                f.write(f"Training MAE: {models_data[model_type]['train_metrics']['mae']:.3f}\n")
+                f.write(f"Validation MAE: {models_data[model_type]['val_metrics']['mae']:.3f}\n")
+            
+            print(f"   ✓ Saved {model_type.upper()}: {model_subdir}")
+        
+        # Also save best model to default location
+        best_idx = min(range(len(results)), key=lambda i: results[i]['val_mae'])
+        best_model_type = ['rf', 'gb'][best_idx]
+        
+        print(f"\n💾 Saving best model ({best_model_type.upper()}) to default location...")
+        model = models_data[best_model_type]['model']
+        scaler = models_data[best_model_type]['scaler']
+        train_metrics = models_data[best_model_type]['train_metrics']
+        val_metrics = models_data[best_model_type]['val_metrics']
+        selected_model_type = best_model_type
+        
+    else:
+        model, scaler, train_metrics, val_metrics = train_and_evaluate(
+            X_train, y_train, X_val, y_val, feature_names, args.model
+        )
+        selected_model_type = args.model
     
     # Save model and scaler
     weights_dir = Path('../weights')
@@ -293,7 +403,7 @@ def main():
     
     # Save configuration
     with open(config_path, 'w') as f:
-        f.write(f"Model type: {args.model}\n")
+        f.write(f"Model type: {selected_model_type}\n")
         f.write(f"Use augmentation: {not args.no_augmentation}\n")
         f.write(f"Use CNN: {args.use_cnn}\n")
         if args.use_cnn:
@@ -322,7 +432,12 @@ def main():
     else:
         print(f"\n⚠️  Validation MAE is {val_metrics['mae']:.3f} g/dL (target: ≤ 0.8)")
         print(f"   Consider trying:")
-        print(f"     - Different model: --model gb")
+        if args.model != 'both':
+            print(f"     - Compare models: --model both")
+        if selected_model_type == 'rf':
+            print(f"     - Try Gradient Boosting: --model gb")
+        else:
+            print(f"     - Try Random Forest: --model rf")
         print(f"     - Add CNN features: --use-cnn --cnn-model resnet50")
         print(f"     - Check image quality in validation set")
 

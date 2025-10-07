@@ -1,6 +1,10 @@
 """
 Evaluate Model on Test Set (30 Images)
-Run from project root: python scripts/06_evaluate_on_test.py
+Run from project root: 
+    python scripts/06_evaluate_on_test.py              # Evaluate default model
+    python scripts/06_evaluate_on_test.py --model rf   # Evaluate Random Forest
+    python scripts/06_evaluate_on_test.py --model gb   # Evaluate Gradient Boosting
+    python scripts/06_evaluate_on_test.py --model both # Compare both models
 """
 
 import numpy as np
@@ -12,6 +16,7 @@ import matplotlib.pyplot as plt
 import sys
 import os
 import importlib.util
+import argparse
 
 # Load the enhanced feature extraction module
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -22,12 +27,29 @@ spec.loader.exec_module(efe_module)
 extract_enhanced_features = efe_module.extract_enhanced_features
 
 
-def load_model_and_scaler():
-    """Load trained model and feature scaler"""
+def load_model_and_scaler(model_type=None):
+    """
+    Load trained model and feature scaler
+    
+    Args:
+        model_type: 'rf', 'gb', or None for default
+    
+    Returns:
+        model, scaler, model_name
+    """
     weights_dir = Path('../weights')
     
-    model_path = weights_dir / 'final_model.pkl'
-    scaler_path = weights_dir / 'feature_scaler.pkl'
+    if model_type:
+        # Load specific model type from subdirectory
+        model_dir = weights_dir / model_type
+        model_path = model_dir / 'final_model.pkl'
+        scaler_path = model_dir / 'feature_scaler.pkl'
+        model_name = model_type.upper()
+    else:
+        # Load default model
+        model_path = weights_dir / 'final_model.pkl'
+        scaler_path = weights_dir / 'feature_scaler.pkl'
+        model_name = 'Default'
     
     if not model_path.exists():
         raise FileNotFoundError(f"Model not found: {model_path}")
@@ -41,20 +63,30 @@ def load_model_and_scaler():
         with open(scaler_path, 'rb') as f:
             scaler = pickle.load(f)
     
-    return model, scaler
+    return model, scaler, model_name
 
 
-def evaluate_on_test_set():
-    """Evaluate model on 30 test images, showing validation and full results"""
+def evaluate_on_test_set(model_type=None):
+    """
+    Evaluate model on 30 test images, showing validation and full results
+    
+    Args:
+        model_type: 'rf', 'gb', or None for default
+    
+    Returns:
+        results_df, mae, rmse, r2, model_name
+    """
     
     print("=" * 70)
-    print("EVALUATING ON TEST SET (30 IMAGES)")
+    print(f"EVALUATING ON TEST SET (30 IMAGES)")
+    if model_type:
+        print(f"Model: {model_type.upper()}")
     print("=" * 70)
     
     # Load model
     print("\n📦 Loading trained model...")
-    model, scaler = load_model_and_scaler()
-    print("   ✓ Model loaded")
+    model, scaler, model_name = load_model_and_scaler(model_type)
+    print(f"   ✓ Model loaded ({model_name})")
     if scaler:
         print("   ✓ Feature scaler loaded")
     
@@ -223,15 +255,16 @@ def evaluate_on_test_set():
     
     # Create visualization
     print("\n📈 Creating visualization...")
+    model_suffix = f"_{model_type}" if model_type else ""
     if len(val_images) > 0 and any(is_validation):
-        create_evaluation_plot(actual_values, predictions, is_validation, mae, val_mae, r2, results_dir)
+        create_evaluation_plot(actual_values, predictions, is_validation, mae, val_mae, r2, results_dir, model_name, model_suffix)
     else:
-        create_evaluation_plot(actual_values, predictions, None, mae, None, r2, results_dir)
+        create_evaluation_plot(actual_values, predictions, None, mae, None, r2, results_dir, model_name, model_suffix)
     
-    return results_df, mae, rmse, r2
+    return results_df, mae, rmse, r2, model_name
 
 
-def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, output_dir):
+def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, output_dir, model_name='Model', suffix=''):
     """Create scatter plot of predictions vs actual values, highlighting validation set"""
     
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -264,9 +297,9 @@ def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, o
     ax.set_ylabel('Predicted Hemoglobin (g/dL)', fontsize=12, fontweight='bold')
     
     if val_mae is not None:
-        title = f'Model Performance on Test Set (30 Images)\nFull MAE: {mae:.3f} | Val MAE: {val_mae:.3f} | R²: {r2:.3f}'
+        title = f'{model_name} Performance on Test Set (30 Images)\nFull MAE: {mae:.3f} | Val MAE: {val_mae:.3f} | R²: {r2:.3f}'
     else:
-        title = f'Model Performance on Test Set (30 Images)\nMAE: {mae:.3f} g/dL | R²: {r2:.3f}'
+        title = f'{model_name} Performance on Test Set (30 Images)\nMAE: {mae:.3f} g/dL | R²: {r2:.3f}'
     
     ax.set_title(title, fontsize=14, fontweight='bold')
     
@@ -278,7 +311,7 @@ def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, o
     ax.set_aspect('equal', adjustable='box')
     
     # Save plot with error handling
-    plot_path = output_dir / 'test_evaluation_plot.png'
+    plot_path = output_dir / f'test_evaluation_plot{suffix}.png'
     try:
         plt.tight_layout()
         plt.savefig(plot_path, dpi=300, bbox_inches='tight')
@@ -287,7 +320,7 @@ def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, o
         # File might be open - try alternative name
         import datetime
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        alt_plot_path = output_dir / f'test_evaluation_plot_{timestamp}.png'
+        alt_plot_path = output_dir / f'test_evaluation_plot{suffix}_{timestamp}.png'
         plt.savefig(alt_plot_path, dpi=300, bbox_inches='tight')
         print(f"   ⚠️  Original plot file was locked")
         print(f"   ✓ Saved plot to: {alt_plot_path}")
@@ -295,10 +328,81 @@ def create_evaluation_plot(actual, predicted, is_validation, mae, val_mae, r2, o
         plt.close()
 
 
+def compare_model_results(results_list):
+    """Compare results from multiple models"""
+    print("\n" + "=" * 70)
+    print("📊 MODEL COMPARISON ON TEST SET")
+    print("=" * 70)
+    
+    comparison = []
+    for result in results_list:
+        comparison.append({
+            'Model': result['model_name'],
+            'MAE': result['mae'],
+            'RMSE': result['rmse'],
+            'R²': result['r2']
+        })
+    
+    df = pd.DataFrame(comparison)
+    print("\n" + df.to_string(index=False))
+    
+    # Find best model
+    best_idx = df['MAE'].idxmin()
+    best_model = df.iloc[best_idx]
+    
+    print("\n" + "=" * 70)
+    print(f"🏆 BEST MODEL ON TEST SET: {best_model['Model']}")
+    print("=" * 70)
+    print(f"   MAE:  {best_model['MAE']:.3f} g/dL")
+    print(f"   RMSE: {best_model['RMSE']:.3f} g/dL")
+    print(f"   R²:   {best_model['R²']:.3f}")
+    
+    if best_model['MAE'] <= 0.8:
+        print(f"\n🎉 TARGET ACHIEVED! MAE ≤ 0.8 g/dL")
+    else:
+        print(f"\n⚠️  Best MAE is {best_model['MAE']:.3f} g/dL (target: ≤ 0.8)")
+    
+    return df
+
+
 def main():
     """Main evaluation function"""
+    parser = argparse.ArgumentParser(
+        description='Evaluate trained model(s) on test set',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    python 06_evaluate_on_test.py              # Evaluate default model
+    python 06_evaluate_on_test.py --model rf   # Evaluate Random Forest
+    python 06_evaluate_on_test.py --model gb   # Evaluate Gradient Boosting
+    python 06_evaluate_on_test.py --model both # Compare both models
+        """
+    )
+    parser.add_argument('--model', type=str, default=None, choices=['rf', 'gb', 'both'],
+                       help='Model to evaluate: rf, gb, or both')
+    args = parser.parse_args()
+    
     try:
-        results_df, mae, rmse, r2 = evaluate_on_test_set()
+        if args.model == 'both':
+            print("🔄 Evaluating both Random Forest and Gradient Boosting...\n")
+            results_list = []
+            
+            for model_type in ['rf', 'gb']:
+                results_df, mae, rmse, r2, model_name = evaluate_on_test_set(model_type)
+                results_list.append({
+                    'model_name': model_name,
+                    'mae': mae,
+                    'rmse': rmse,
+                    'r2': r2,
+                    'results_df': results_df
+                })
+                print("\n")
+            
+            # Compare results
+            compare_model_results(results_list)
+            
+        else:
+            results_df, mae, rmse, r2, model_name = evaluate_on_test_set(args.model)
         
         print("\n" + "=" * 70)
         print("✅ EVALUATION COMPLETE")
